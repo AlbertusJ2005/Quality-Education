@@ -1,0 +1,378 @@
+---
+title: ""
+author: ""
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+header-includes:
+  - \usepackage{graphicx}
+---
+<!-- Untuk file gambar logo BINUS dan Map Indonesia ada di link drive berikut: https://drive.google.com/drive/folders/1wxu6mL38pZWm0CLpkqMap8tT5JmAk23l?usp=sharing
+-->
+```{=latex}
+\centering
+{\LARGE \textbf{Educational Data Analysis} \par}\
+{\large {Final Project AOL - Data Mining and Visualization}}
+\vspace{3cm}
+
+\begin{center}
+  \includegraphics[width=10cm, keepaspectratio]{BINUS.png}
+\end{center}
+
+\vfill
+{\large\textbf{LF09 - Group 6}}\\[0.2cm]
+Reynard Setiawan -- 2702232321\\
+Albertus Januario -- 2702341890\\
+Davin Miguel Sanjaya -- 2702245431\\
+Stepanus Imanuel -- 2702355574\\
+\vspace{3cm}
+\centering
+{\large\textbf{Data Mining and Visualization}}\\
+{\large\textbf{Data Science}}\\
+{\large\textbf{School of Computer Science}}\\
+\vspace{1cm}
+\centering
+{\large\textbf{BINUS UNIVERSITY 2025}}
+\vspace{1cm}
+
+\normalsize
+\raggedright
+\newpage
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE,message = FALSE, fig.align = "center",fig.width = 5, fig.height = 3)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(sf)
+library(viridis)
+library(scales)
+library(tidyr)
+```
+
+
+```{r handle-na-outliers, message=FALSE, warning=FALSE}
+#ubah sesuai directory sendiri
+setwd("E:/Reynard_datamining")
+
+data <- readxl::read_excel("Group6_QualityEducation.xlsx")
+data <- data %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) %>%
+  mutate(across(where(is.character), ~ ifelse(is.na(.), "Tidak Diketahui", .)))
+
+
+handle_outliers <- function(x) {
+  if (is.numeric(x)) {
+    Q1 <- quantile(x, 0.25, na.rm = TRUE)
+    Q3 <- quantile(x, 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    x[x < (Q1 - 1.5 * IQR) | x > (Q3 + 1.5 * IQR)] <- NA
+  }
+  return(x)
+}
+
+data <- data %>%
+  mutate(across(where(is.numeric), handle_outliers)) %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), median(., na.rm = TRUE), .)))
+```
+
+
+# Background
+
+Sustainable Development Goal (SDG) No. 4 aims to ensure inclusive and quality education and promote lifelong learning opportunities for all.
+
+Quality primary education serves as a foundation for a country’s social and economic development. Therefore, analysing the performance of primary school students and the factors influencing it is essential to achieving this goal.
+
+
+# Project Objectives
+
+This project aims to analyse trends in primary school student performance and the factors influencing it, in alignment with Sustainable Development Goal (SDG) No. 4 on quality education.  
+
+# Columns Used and Target
+
+In this analysis, several key columns were utilised from the dataset to explore regional and educational characteristics of schools. These include:
+
+- **Columns**:  
+  1. **wilayah_bagian** – region classification  
+  2. **sts_sek** – school status  
+  3. **kurikulum** – type of curriculum implemented  
+  4. **jumlah_pendidik** – number of educators  
+  5. **gol_pendidik** – educator's rank  
+  6. **ketersediaan_internet** – internet availability  
+  7. **LIT** – literacy index  
+  8. **NUM** – numeracy index  
+  9. **Total** – likely indicating a combined index score
+
+  The primary target variable in this study is Total, which likely represents an aggregate performance score combining literacy and numeracy indices. This variable serves as a proxy for overall student performance at the primary school level. By examining how this target variable varies across different regions and educational contexts, the analysis aims to identify patterns and disparities that may inform targeted policy interventions and support the achievement of equitable and quality education.
+
+  The other selected columns function as explanatory or contextual variables, helping to reveal how infrastructure, curriculum type, teacher qualifications, and geographic distribution may correlate with student outcomes. This structured approach allows for a comprehensive understanding of the key drivers behind educational performance disparities in Indonesia's primary education system.
+  
+  The data used in this analysis were sourced from the Rapor Publik Asesmen Nasional 2023 – Peserta Didik SD, published by the Ministry of Education, Culture, Research, and Technology of Indonesia, and publicly accessible at: https://data.dikdasmen.go.id/dataset/p/asesmen-nasional/rapor-publik-an-2023-peserta-didik-sd.
+
+
+```{r load-data}
+
+
+cols_to_convert <- c("bg7","bg8","bg9","bg10","bg11","bg12","bg13",
+                     "bg14", "bg15", "bg16", "bg17", "bg18", "bg19",
+                     "bg23","bg24")
+
+for (col in cols_to_convert) {
+  data[[col]] <- ifelse(grepl("^A", data[[col]]), 0, 1)
+}
+
+data$kurikulum <- ifelse(data$kurikulum == "Kurikulum -2013", 1,
+                       ifelse(data$kurikulum == "Kurikulum Merdeka", 0, NA))
+data$sts_sek <- ifelse(data$sts_sek == "S", 1,
+                     ifelse(data$sts_sek == "N", 0, NA))
+
+data$LIT <- as.numeric(data$LIT)
+data$NUM <- as.numeric(data$NUM)
+data$ketersediaan_internet <- as.numeric(data$ketersediaan_internet)
+data$Total <- (data$NUM + data$LIT) / 2
+```
+
+
+# Data Visualization
+
+## Curriculum
+
+```{r boxplot-lainnya}
+ggplot(data, aes(x = as.factor(kurikulum), y = Total)) +
+  geom_boxplot(fill = c("lightblue", "lightgreen")) +
+  labs(title = "Total Score by Curriculum Type",
+       x = "Curriculum",
+       y = "Total Score") +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+  The Impact of Curriculum on Student Performance
+This factor explores the impact of curriculum type on the academic performance of elementary school students in Indonesia. The comparison is focused on two major curricula currently implemented in schools: the 2013 Curriculum and the Independent Curriculum.
+
+  Based on the boxplot analysis, it is evident that students following the Independent Curriculum tend to achieve higher median scores, with a median value of 51.34, compared to 44.06 for students under the 2013 Curriculum. However, the Independent Curriculum also demonstrates a greater spread of scores, indicating that while some students excel, others may fall significantly behind.
+
+  In contrast, the 2013 Curriculum results in more consistent scores across students, although the overall scores are generally lower. This suggests a more uniform level of performance, with fewer students reaching very high or very low outcomes.
+
+  These findings suggest that curriculum design plays a crucial role not only in influencing the overall performance of students but also in shaping the equity of educational outcomes. While the Independent Curriculum provides opportunities for higher achievement, it may also result in increased inequality if not supported by adequate teaching strategies and educational resources.
+
+  This analysis is closely aligned with the goals of Sustainable Development Goal (SDG) 4), which emphasizes the importance of ensuring inclusive and equitable quality education. The results highlight the need to balance curricular innovation with policies and interventions that promote fair and equal access to learning opportunities for all students in Indonesia.
+
+## Average Score Map by Region
+
+```{r peta , fig.width= 7, fig.height=4, message=FALSE, warning=FALSE}
+#Ubah sesuai directory
+shp_path <- "E:/Reynard_datamining/Final/gadm41_IDN_shp/gadm41_IDN_1.shp"
+indo_prov <- suppressMessages(suppressWarnings(st_read(shp_path,quiet = TRUE)))
+
+indo_prov$wilayah_bagian <- NA
+indo_prov$wilayah_bagian[indo_prov$NAME_1 %in% c("Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Jambi", "Bengkulu", "Lampung", "Bangka Belitung", "Kepulauan Riau", "Banten", "Jakarta Raya", "Jawa Barat", "Jawa Tengah", "Yogyakarta", "Jawa Timur", "Bali", "Sumatera Selatan")] <- "Barat"
+indo_prov$wilayah_bagian[indo_prov$NAME_1 %in% c("Kalimantan Barat", "Kalimantan Tengah", "Kalimantan Selatan", "Kalimantan Timur", "Kalimantan Utara", "Nusa Tenggara Barat", "Nusa Tenggara Timur", "Sulawesi Barat", "Sulawesi Selatan", "Sulawesi Tenggara", "Sulawesi Tengah", "Sulawesi Utara", "Gorontalo")] <- "Tengah"
+indo_prov$wilayah_bagian[indo_prov$NAME_1 %in% c("Maluku", "Maluku Utara", "Papua", "Papua Barat", "Papua Tengah", "Papua Pegunungan", "Papua Selatan", "Papua Barat Daya")] <- "Timur"
+
+data$wilayah_bagian <- dplyr::recode(data$wilayah_bagian,
+                                   "Indonesia Barat" = "Barat",
+                                   "Indonesia Tengah" = "Tengah",
+                                   "Indonesia Timur" = "Timur")
+
+
+rata_rata_wilayah <- data %>%
+  group_by(wilayah_bagian) %>%
+  summarise(mean_total = mean(Total, na.rm = TRUE))
+
+indo_plot <- left_join(indo_prov, rata_rata_wilayah, by = "wilayah_bagian")
+
+ggplot(data = indo_plot) +
+  geom_sf(aes(fill = mean_total), color = "white") +
+  scale_fill_viridis(name = "Total Score", option = "C", direction = -1, na.value = "gray90") +
+  labs(title = "Average Total Score by Region") +
+  theme_minimal() +
+  theme(axis.text = element_blank(), axis.title = element_blank(),plot.title = element_text(hjust = 0.5))
+
+
+```
+
+## Percentage of Schools in Special Areas
+
+```{r daerah-khusus,fig.width=6}
+df_percent <- data %>%
+  filter(
+    !is.na(daerah_khusus),
+    !is.na(wilayah_bagian),
+    daerah_khusus != "Tidak Diketahui"
+  ) %>%
+  group_by(wilayah_bagian, daerah_khusus) %>%
+  summarise(jumlah = n(), .groups = "drop") %>%
+  group_by(wilayah_bagian) %>%
+  mutate(persen = jumlah / sum(jumlah))
+
+ggplot(df_percent, aes(x = wilayah_bagian, y = persen, fill = daerah_khusus)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+  geom_text(aes(label = paste0(round(persen * 100, 1), "%")),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.01), limits = c(0, 1.1)) +
+  labs(
+    title = "Percentage of Special and Non-Special Area Schools by Region",
+    x = "Region",
+    y = "Percentage",
+    fill = "Special Area"
+  ) +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+  This study demonstrates that geographical areas also have an effect on academic achievement of elementary school students in Indonesia. The chart displays literacy and numeracy average total score taken from a combination of literacy and numeracy scores for students, which is distributed based on three regional areas: Western, Central, and Eastern Indonesia.
+
+  The area of Western rank above average of its own total rank in Sumatra, Java, and Bali provinces. The graphic itself shows that with dark blue color in the map, representing high scores. This area presented a relatively greater score than the other two regions according from the demonstration mapping.
+
+  The Central region which consists of Kalimantan, Sulawesi and Nusa Tenggara are coded in purple on the map and indicates average at a medium level. Placement of the region Is placed between the Western and Eastern regions in terms of elementary students average total scores.
+
+  The average scores in the region in Eastern Indonesia, including Maluku and Papua, were the lowest compared with the other two regions. In the map, this area is identified in yellow, this means that the total score of students is the lowest there compared to the other areas.
+
+  This phenomenon shows different learning outcomes of students based on the regional area in Indonesia. These differences are also reflected in the proportion of schools located in geographically disadvantaged or “special” areas, as defined in the Ministerial Decree Number 160/P/2021. According to the regulation, special areas include remote or underdeveloped regions, areas with isolated indigenous communities, regions bordering other countries, and the smallest or outermost islands.
+
+  The barplot supports this by showing that 14.03% of schools in Eastern Indonesia fall into the “special area” category, compared to only 3.24% in the Central region and 2.67% in the Western region. This reinforces the argument that limited access and geographic isolation may contribute to the lower academic outcomes observed in the Eastern region.
+
+  This finding exemplifies how location can impact academic disparities among elementary students. It also aligns with the objective of Sustainable Development Goal (SDG) 4, which promotes inclusive and equitable quality education for all. Through regional data, the study offers a clearer picture of the inequality in student achievement across different parts of Indonesia.
+  
+## Mean Score Based on Number of Teachers
+
+```{r barplot-golongan,fig.height=5}
+data$jumlah_pendidik <- as.numeric(data$jumlah_pendidik)
+data$gol_pendidik <- cut(data$jumlah_pendidik,
+                       breaks = c(0, 10, 20, 30, 40, 50, Inf),
+                       labels = c("1–10", "11–20", "21–30", "31–40", "41–50", "51+"),
+                       right = TRUE)
+
+df_avg <- data %>%
+  filter(!is.na(gol_pendidik)) %>%
+  group_by(gol_pendidik) %>%
+  summarise(mean_total = mean(Total, na.rm = TRUE))
+
+ggplot(df_avg, aes(x = gol_pendidik, y = mean_total, fill = mean_total)) +
+  geom_col() +
+  geom_text(aes(label = round(mean_total, 1)), vjust = -0.5, size = 4) +
+  scale_fill_gradient(low = "#c6dbef", high = "#08306b") +
+  labs(title = "Average Total Score by Teacher Count Group",
+       x = "Teacher Count Group",
+       y = "Average Total Score",
+       fill = "Score") +
+  theme_minimal()
+```
+
+  This factor examines the relationship between the number of teachers in a school and the academic achievement of elementary students in Indonesia.
+The analysis groups schools into six categories based on the number of teachers: 1–10, 11–20, 21–30, 31–40, 41–50, and more than 51 teachers.
+This categorization considers the typical number of subjects and grade levels in elementary education, which require a sufficient number of teachers to ensure equal and quality instruction across all classes.
+For instance, a school with six grade levels and four parallel classes per level would have around 24 active classes.
+Assuming each teacher can effectively handle up to four classes, approximately 50 teachers would be needed to support optimal learning conditions.
+Hence, the upper category (>51 teachers) represents schools with an ideal teacher structure.
+
+  The visual analysis shows a clear trend of increasing student performance alongside a higher number of teachers.
+Schools with only 1–10 teachers had the lowest average student score (49.3), while those with more than 51 teachers reached the highest average score (66.4).
+This pattern suggests that a greater number of teachers contributes to better learning outcomes, likely due to improved student-teacher ratios, more balanced teaching loads, and increased opportunities for subject specialization.
+
+  Nevertheless, while a higher number of teachers positively correlates with academic achievement, the score disparities between groups also highlight challenges related to educational equity.
+Schools with limited teaching staff may struggle to deliver comprehensive instruction across all subjects and levels, putting their students at a disadvantage compared to those in better-resourced institutions.
+
+  These findings underscore the importance of teacher allocation as a strategic approach to improving education quality.
+Aligned with Sustainable Development Goal (SDG) 4, which promotes inclusive and equitable quality education, the results call for policies that ensure fair and sufficient distribution of teachers, particularly in underserved and remote areas of Indonesia.
+
+  In response to these findings, national and local governments are encouraged to strengthen teacher distribution policies based on the real needs of schools.
+This includes teacher placements that take into account the number of classes and students, as well as providing special incentives for teachers assigned to remote or less desirable locations.
+
+  Schools can also manage teaching loads more proportionally and explore inter-school collaboration, such as sharing teaching resources or instructional materials.
+The use of educational technology—such as online learning and digital content—can also serve as a key strategy, especially for schools with limited teaching staff.
+Through these coordinated efforts, it is hoped that both quality and equity in education can be better realized across Indonesia.
+
+## Internet Availability in Schools
+```{r,fig.width=7}
+
+# Filter NA
+df_nuel <- data %>%
+  filter(!is.na(wilayah_bagian), !is.na(Total), !is.na(ketersediaan_internet), !is.na(bg13))
+
+df_nuel <- df_nuel %>%
+  mutate(wilayah_bagian = recode(wilayah_bagian,
+                                 "Barat" = "Indonesia Barat",
+                                 "Tengah" = "Indonesia Tengah",
+                                 "Timur" = "Indonesia Timur"))
+
+# Ubah ke long format
+df_long <- df_nuel %>%
+  pivot_longer(cols = c(ketersediaan_internet, bg13),
+               names_to = "Kategori",
+               values_to = "Status_Internet")
+
+# Ubah nama kategori agar lebih deskriptif
+df_long$Kategori <- recode(df_long$Kategori,
+                           "ketersediaan_internet" = "Internet di Sekolah",
+                           "bg13" = "Internet di Rumah")
+
+# Pastikan status internet sebagai faktor (agar legend tertata rapi)
+df_long$Status_Internet <- factor(df_long$Status_Internet,
+                                  levels = c(0, 1),
+                                  labels = c("Ada", "Tidak Ada"))
+
+df_sekolah <- df_long %>%
+  filter(Kategori == "Internet di Sekolah")
+
+df_sekolah_clean <- df_sekolah %>%
+  group_by(wilayah_bagian, Status_Internet) %>%
+  mutate(
+    Q1 = quantile(Total, 0.25, na.rm = TRUE),
+    Q3 = quantile(Total, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    lower = Q1 - 1.5 * IQR,
+    upper = Q3 + 1.5 * IQR
+  ) %>%
+  ungroup() %>%
+  filter(Total >= lower & Total <= upper)
+df_sekolah_clean$Status_Internet <- factor(
+  df_sekolah_clean$Status_Internet,
+  levels = c("Ada", "Tidak Ada"),
+  labels = c("Available", "Not Available")
+)
+
+wilayah_labels <- c(
+  "Indonesia Barat" = "Western Indonesia",
+  "Indonesia Tengah" = "Central Indonesia",
+  "Indonesia Timur" = "Eastern Indonesia"
+)
+
+palette <- c("Available" = "#1f78b4", "Not Available" = "#a6cee3")
+
+ggplot(df_sekolah_clean, aes(x = Status_Internet, y = Total, fill = Status_Internet)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5) +
+  stat_summary(fun = mean, geom = "crossbar",
+               width = 0.4, fatten = 0, color = "black", linetype = "dashed") +
+  facet_wrap(~ wilayah_bagian, labeller = as_labeller(wilayah_labels)) +
+  labs(
+    title = "Does School Internet Access Affect Student Performance?",
+    subtitle = "Comparison of average Total Scores based on Internet availability across Indonesia",
+    x = NULL,
+    y = "Total Score",
+    fill = NULL
+  ) +
+  scale_fill_manual(values = palette) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    strip.text = element_text(face = "bold")
+  )
+
+
+```
+  This factor explores how internet access at school relates to student performance. The data is visualized using boxplots that compare student scores across three regions in Indonesia: West, Central, and East. Outliers were removed using the IQR method to better highlight the main distribution of scores.
+
+  Interestingly, schools with internet access show a wider variation in student performance. Some students perform very well, while others perform quite poorly. In contrast, schools without internet access tend to have more consistent but generally lower scores.
+
+  This suggests that internet access may expand learning opportunities. For instance, students can explore online learning platforms, watch educational videos, access up-to-date information, and practice through interactive exercises beyond the classroom. However, it can also widen the performance gap. Without proper guidance, some students may misuse the internet. Spending too much time on games, social media, and non-educational video are some example of them.  In the end, internet must be paired with digital literacy training, teacher guidance, and parental involvement to ensure students can get benefit from online resources effectively.
